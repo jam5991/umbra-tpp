@@ -80,9 +80,13 @@ class IntensityRNN(nn.Module):
             nn.GELU(),
             nn.Linear(hidden_dim // 2, 1),
         )
+        # LayerNorm on hidden states before intensity head prevents scale blow-up
+        # while preserving within-sequence dynamics
+        self.hidden_norm = nn.LayerNorm(hidden_dim)
 
-        # Learnable base intensity (background rate)
-        self.base_intensity = nn.Parameter(torch.tensor(0.1))
+        # Learnable base intensity (background rate).
+        # Initialize to -2.0 so softplus gives ~0.12 — prevents early saturation.
+        self.base_intensity = nn.Parameter(torch.tensor(-2.0))
 
     def forward(
         self,
@@ -127,14 +131,17 @@ class IntensityRNN(nn.Module):
         else:
             hidden_states, _ = self.rnn(x)
 
+        # Apply LayerNorm to stabilize hidden scale before intensity head
+        normed = self.hidden_norm(hidden_states)
+
         # Compute intensities
-        raw_intensity = self.intensity_head(hidden_states).squeeze(-1)  # (B, L)
+        raw_intensity = self.intensity_head(normed).squeeze(-1)  # (B, L)
         raw_intensity = raw_intensity + F.softplus(self.base_intensity)
 
         if self.use_softplus:
             intensities = F.softplus(raw_intensity)
         else:
-            intensities = torch.exp(raw_intensity.clamp(max=10.0))
+            intensities = torch.exp(raw_intensity.clamp(max=5.0))
 
         return intensities, hidden_states
 
@@ -332,14 +339,24 @@ class NeuralTPP(nn.Module):
 
         # Use the last valid intensity for each sequence
         if batch.mask is not None:
-            # Get index of last valid event
             lengths = batch.mask.sum(dim=1).long() - 1  # (B,)
             last_intensity = intensities[torch.arange(len(lengths)), lengths]
         else:
             last_intensity = intensities[:, -1]
 
-        # P(fill) = 1 - exp(-λ * horizon)
-        fill_prob = 1.0 - torch.exp(-last_intensity * horizon)
+        # Normalize intensity relative to sequence statistics for calibration.
+        # Prevents saturation when absolute λ values drift after extended training.
+        seq_mean = intensities.mean(dim=1)
+        seq_std = intensities.std(dim=1).clamp(min=1e-4)
+        last_z = (last_intensity - seq_mean) / seq_std  # z-score
+        # Map z-score to [0,1] via sigmoid — relative rank within sequence
+        calibrated = torch.sigmoid(last_z)
+
+        # Also compute the raw survival-based probability for reference
+        raw_prob = 1.0 - torch.exp(-last_intensity * horizon)
+
+        # Blend: 70% calibrated rank + 30% raw survival
+        fill_prob = 0.7 * calibrated + 0.3 * raw_prob
         return fill_prob.clamp(0, 1)
 
 

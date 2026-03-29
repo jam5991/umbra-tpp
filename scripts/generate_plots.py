@@ -130,26 +130,42 @@ def generate_intensity_plot(
     # ── Top: Intensity + Fill Probability ────────────────────────────
     x = np.arange(len(intensities))
 
-    # Intensity line
-    ax_main.plot(x, intensities, color=CYAN, linewidth=1.5, label="λ(t) Intensity", zorder=3)
-    ax_main.fill_between(x, intensities.min(), intensities, alpha=0.08, color=CYAN)
+    # Demean intensity to reveal within-sequence dynamics.
+    # Absolute λ values for this dataset cluster around 2.0;
+    # the interesting signal is the *deviation* from the local mean.
+    roll_win = max(5, len(intensities) // 20)
+    i_mean = np.convolve(intensities, np.ones(roll_win) / roll_win, mode="same")
+    intensity_dev = intensities - i_mean   # signed deviation from local trend
 
-    # Fill probability on secondary axis
+    # Normalize for display
+    i_dev_norm = intensity_dev / (np.abs(intensity_dev).max() + 1e-8)
+
+    ax_main.plot(x, i_dev_norm, color=CYAN, linewidth=1.5,
+                 label="λ(t) deviation from local mean", zorder=3)
+    ax_main.fill_between(x, 0, i_dev_norm, where=i_dev_norm > 0,
+                         alpha=0.12, color=CYAN)
+    ax_main.fill_between(x, 0, i_dev_norm, where=i_dev_norm < 0,
+                         alpha=0.08, color=RED)
+    ax_main.axhline(0, color=GRAY, linewidth=0.8, linestyle="--", alpha=0.5)
+
+    # Fill probability (normalized 0-1 range) on secondary axis
+    fp_norm = (fill_probs - fill_probs.min()) / (np.ptp(fill_probs) + 1e-8)
     ax_fp = ax_main.twinx()
-    ax_fp.plot(x, fill_probs, color=GREEN, linewidth=1.2, alpha=0.8, linestyle="--", label="Fill Probability")
-    ax_fp.fill_between(x, fill_probs.min(), fill_probs, alpha=0.05, color=GREEN)
+    ax_fp.plot(x, fp_norm, color=GREEN, linewidth=1.2, alpha=0.8,
+               linestyle="--", label="Fill P (normalized range)")
+    ax_fp.fill_between(x, 0, fp_norm, alpha=0.05, color=GREEN)
     ax_fp.set_ylabel("Fill Probability P(fill)", color=GREEN)
     ax_fp.tick_params(axis="y", colors=GREEN)
     ax_fp.spines["right"].set_color(GREEN)
 
     # Highlight intensity peaks (potential "Hidden Whale" detections)
-    intensity_threshold = intensities.mean() + 1.5 * intensities.std()
-    peak_mask = intensities > intensity_threshold
+    intensity_threshold = i_dev_norm.mean() + 1.5 * i_dev_norm.std()
+    peak_mask = i_dev_norm > intensity_threshold
     if peak_mask.any():
         ax_main.scatter(
-            x[peak_mask], intensities[peak_mask],
+            x[peak_mask], i_dev_norm[peak_mask],
             color=ORANGE, s=50, zorder=5, marker="^",
-            label=f"Hidden Whale Signal (λ > {intensity_threshold:.3f})",
+            label=f"Hidden Whale Signal (Δλ > {intensity_threshold:.2f}σ)",
             edgecolors="white", linewidths=0.5,
         )
 

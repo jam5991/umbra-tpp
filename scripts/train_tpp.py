@@ -308,14 +308,31 @@ def main():
     if not args.no_causal:
         logger.info("\n━━━ Step 6: Causal Market Impact Estimation ━━━")
 
-        # Build a causal dataset with simulated treatment/outcome
-        # In production, treatment = whether a dark pool order was placed
-        # outcome = observed price impact in bps
-        causal_df = trades.copy()
+        # Build a causal dataset with simulated treatment/outcome.
+        # In production, treatment = whether a dark pool order was placed,
+        # outcome = observed price impact in bps.
+        causal_df = trades.copy().sort_values("timestamp").reset_index(drop=True)
         causal_df["is_dark_fill"] = (causal_df["quantity"] > causal_df["quantity"].median()).astype(float)
         causal_df["price_impact_bps"] = causal_df["price"].pct_change().fillna(0) * 10_000
+
+        # Rich confounders — more features → better nuisance R²
         causal_df["volatility"] = causal_df["price"].rolling(20, min_periods=1).std().fillna(0)
         causal_df["volume_flow"] = causal_df["quantity"].rolling(20, min_periods=1).sum().fillna(0)
+        causal_df["rolling_return"] = causal_df["price"].pct_change().fillna(0).rolling(10, min_periods=1).sum()
+        causal_df["price_momentum"] = causal_df["price"].pct_change(5).fillna(0) * 10_000
+        causal_df["volume_accel"] = causal_df["volume_flow"].diff().fillna(0)
+        causal_df["trade_intensity"] = 1.0 / (
+            pd.to_datetime(causal_df["timestamp"]).astype("int64").diff().fillna(1e9) / 1e9
+        ).clip(lower=1e-3).rolling(10, min_periods=1).mean()
+        causal_df["signed_flow"] = (
+            causal_df["quantity"] * causal_df["side"].map({"buy": 1.0, "sell": -1.0}).fillna(0)
+        ).rolling(10, min_periods=1).sum()
+        causal_df["abs_impact_lag1"] = causal_df["price_impact_bps"].abs().shift(1).fillna(0)
+
+        confounder_cols = [
+            "volatility", "volume_flow", "rolling_return", "price_momentum",
+            "volume_accel", "trade_intensity", "signed_flow", "abs_impact_lag1",
+        ]
 
         estimator = MarketImpactEstimator(
             n_folds=config["causal"].get("n_folds", 3),
@@ -326,7 +343,7 @@ def main():
             causal_df,
             treatment_col="is_dark_fill",
             outcome_col="price_impact_bps",
-            confounder_cols=["volatility", "volume_flow"],
+            confounder_cols=confounder_cols,
         )
         logger.info(f"  ATE = {result.ate:.4f} ± {result.ate_std:.4f} bps")
         logger.info(f"  95% CI: [{result.confidence_interval[0]:.4f}, {result.confidence_interval[1]:.4f}]")
@@ -336,11 +353,10 @@ def main():
         # ━━━ Adversarial Debiasing ━━━
         logger.info("\n━━━ Adversarial Debiasing ━━━")
         adversarial_cfg = config["causal"]
-        feature_cols = ["volatility", "volume_flow"]
-        features_np = causal_df[feature_cols].fillna(0).values
+        features_np = causal_df[confounder_cols].fillna(0).values
         labels_np = causal_df["is_dark_fill"].values
 
-        debias = AdversarialDebias(feature_dim=len(feature_cols))
+        debias = AdversarialDebias(feature_dim=len(confounder_cols))
         debias_losses = debias.train_discriminator(
             features_np, labels_np,
             epochs=adversarial_cfg.get("adversarial_epochs", 20),
