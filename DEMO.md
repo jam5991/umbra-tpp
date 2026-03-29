@@ -18,9 +18,11 @@ python scripts/run_demo.py --config configs/default.yaml
 
 The Neural TPP's conditional intensity function λ(t) captures the **arrival rate of hidden orders** by learning patterns from the visible "lit market exhaust" on Binance/OKX. The 3-panel plot below shows:
 
-- **Top:** λ(t) (cyan) with fill probability (green dashed). Orange `▲` markers flag "Hidden Whale" signals (λ > 1.5σ). Purple shading marks **cluster zones** — regions where events arrive in rapid bursts, the hallmark of a **Hawkes process**.
-- **Middle:** Inter-arrival time Δt (ms). Low bars = bursty clustering. The dashed line marks the burst threshold (p25). The model learns this "bursty" structure — hidden liquidity doesn't appear uniformly, it clusters around informed flow.
+- **Top:** Δλ(t) (cyan) shown as the deviation from its local mean, alongside fill probability (green dashed). Orange `▲` markers flag "Hidden Whale" signals when the predicted intensity surges unnaturally. Purple shading marks **cluster zones** — regions where events arrive in rapid bursts, the hallmark of a **Hawkes process**.
+- **Middle:** Inter-arrival time Δt plotted on a **logarithmic scale** to capture both slow (sparse) and hyper-dense (microsecond) trading regimes across venues. The dashed orange line marks the **dynamic local baseline**. Whenever actual trading drops $\le 50\%$ below this baseline, the plot is shaded purple as an active cluster zone. 
 - **Bottom:** Lit market volume (BTC) per event window.
+
+> 🧠 **Predictive vs. Reactive:** You will notice the orange Whale Signals often trigger *exactly as* or shortly *before* a purple cluster zone begins. The purple zone is a reactive 10-trade moving average; it confirms a burst is happening. The model (orange) instantly evaluates instantaneous order book tension (OFI, VPIN) and *predicts* the burst before the moving average can confirm it.
 
 ![Intensity λ(t) — Hidden Liquidity Detection](docs/plots/intensity_lambda.png)
 
