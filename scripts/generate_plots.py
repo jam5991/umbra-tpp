@@ -177,8 +177,9 @@ def generate_intensity_plot(
     ])
     local_baseline = pd.Series(window_ia).rolling(20, min_periods=1, center=True).mean().values
     
-    # A burst is when Δt is less than 50% of the local baseline (and below 1 second)
-    burst_mask = (window_ia < (local_baseline * 0.5)) & (window_ia < 1.0)
+    # A burst is purely relative: when Δt drops to or below 50% of the local baseline.
+    # The <= handles the edge case where both window_ia and local_baseline are exactly 0.
+    burst_mask = (window_ia <= (local_baseline * 0.5)) & (window_ia < 1.0)
     
     if burst_mask.any():
         # Fill burst zones on the intensity panel
@@ -224,11 +225,18 @@ def generate_intensity_plot(
     )
 
     # ── Middle: Inter-arrival clustering (Hawkes behavior) ───────────
-    ax_cluster.bar(x, window_ia * 1000, color=PURPLE, alpha=0.7, width=1.0, label="Avg Δt (ms)")
+    # We use a log scale because Δt varies by orders of magnitude across regimes
+    ya = np.maximum(window_ia * 1000, 0.1)  # clamp at 0.1ms for log scale
+    bl = np.maximum(local_baseline * 1000, 0.1)
+    
+    ax_cluster.plot(x, ya, color=PURPLE, linewidth=1.0, label="Avg Δt (ms)")
+    ax_cluster.fill_between(x, 0.1, ya, color=PURPLE, alpha=0.4)
     
     # Plot the dynamic local baseline
-    ax_cluster.plot(x, local_baseline * 1000, color=ORANGE, linestyle="--", 
-                    linewidth=1.0, alpha=0.6, label="Local Baseline Δt")
+    ax_cluster.plot(x, bl, color=ORANGE, linestyle="--", 
+                    linewidth=1.2, alpha=0.8, label="Local Baseline Δt")
+    ax_cluster.set_yscale("log")
+    ax_cluster.set_ylim(bottom=0.1)
     
     if burst_mask.any():
         # Shade burst zones in the middle panel
