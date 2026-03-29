@@ -226,17 +226,18 @@ def generate_intensity_plot(
 
     # ── Middle: Inter-arrival clustering (Hawkes behavior) ───────────
     # We use a log scale because Δt varies by orders of magnitude across regimes
-    ya = np.maximum(window_ia * 1000, 0.1)  # clamp at 0.1ms for log scale
-    bl = np.maximum(local_baseline * 1000, 0.1)
+    ya = np.maximum(window_ia * 1000, 0.01)  # clamp at 0.01ms (10µs) for log scale visibility
+    bl = np.maximum(local_baseline * 1000, 0.01)
     
     ax_cluster.plot(x, ya, color=PURPLE, linewidth=1.0, label="Avg Δt (ms)")
-    ax_cluster.fill_between(x, 0.1, ya, color=PURPLE, alpha=0.4)
-    
     # Plot the dynamic local baseline
     ax_cluster.plot(x, bl, color=ORANGE, linestyle="--", 
                     linewidth=1.2, alpha=0.8, label="Local Baseline Δt")
+
+    # A small bottom padding ensures the clamped 0.01ms lines don't get hidden 
+    # under the Matplotlib axis spine.
     ax_cluster.set_yscale("log")
-    ax_cluster.set_ylim(bottom=0.1)
+    ax_cluster.set_ylim(bottom=0.001)
     
     if burst_mask.any():
         # Shade burst zones in the middle panel
@@ -260,8 +261,11 @@ def generate_intensity_plot(
     ax_vol.set_xlabel("Event Window Index", color=GRAY)
     ax_vol.grid(True, alpha=0.2)
 
-    # Minimal y-axis
     ax_vol.yaxis.set_major_formatter(FuncFormatter(lambda v, _: f"{v:.1f}"))
+
+    # Remove horizontal padding so data touches the frame boundaries
+    for ax in (ax_main, ax_cluster, ax_vol):
+        ax.set_xlim(0, len(x) - 1)
 
     fig.savefig(output_path, dpi=150, bbox_inches="tight", facecolor=fig.get_facecolor())
     plt.close(fig)
