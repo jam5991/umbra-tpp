@@ -134,7 +134,7 @@ def generate_intensity_plot(
     # Absolute λ values for this dataset cluster around 2.0;
     # the interesting signal is the *deviation* from the local mean.
     roll_win = max(5, len(intensities) // 20)
-    i_mean = np.convolve(intensities, np.ones(roll_win) / roll_win, mode="same")
+    i_mean = pd.Series(intensities).rolling(window=roll_win, center=True, min_periods=1).mean().values
     intensity_dev = intensities - i_mean   # signed deviation from local trend
 
     # Normalize for display
@@ -170,12 +170,16 @@ def generate_intensity_plot(
         )
 
     # Shade burst/cluster zones: regions where inter-arrival times are short
-    # (i.e., events arrive in rapid succession — Hawkes process hallmark)
+    # relative to the local baseline (Hawkes process hallmark).
+    # Using a 20-window moving average to create a dynamic threshold.
     window_ia = np.array([
         np.mean(inter_arrivals[max(0, i - 10):i]) for i in event_indices
     ])
-    burst_threshold = np.percentile(window_ia[window_ia > 0], 25) if np.any(window_ia > 0) else 0
-    burst_mask = window_ia < burst_threshold
+    local_baseline = pd.Series(window_ia).rolling(20, min_periods=1, center=True).mean().values
+    
+    # A burst is when Δt is less than 50% of the local baseline (and below 1 second)
+    burst_mask = (window_ia < (local_baseline * 0.5)) & (window_ia < 1.0)
+    
     if burst_mask.any():
         # Fill burst zones on the intensity panel
         burst_starts = np.where(np.diff(burst_mask.astype(int)) == 1)[0] + 1
@@ -221,12 +225,13 @@ def generate_intensity_plot(
 
     # ── Middle: Inter-arrival clustering (Hawkes behavior) ───────────
     ax_cluster.bar(x, window_ia * 1000, color=PURPLE, alpha=0.7, width=1.0, label="Avg Δt (ms)")
-    if burst_threshold > 0:
-        ax_cluster.axhline(
-            burst_threshold * 1000, color=ORANGE, linestyle="--",
-            linewidth=1.2, alpha=0.8, label=f"Burst Threshold (p25 = {burst_threshold*1000:.1f}ms)",
-        )
-        # Shade burst zones
+    
+    # Plot the dynamic local baseline
+    ax_cluster.plot(x, local_baseline * 1000, color=ORANGE, linestyle="--", 
+                    linewidth=1.0, alpha=0.6, label="Local Baseline Δt")
+    
+    if burst_mask.any():
+        # Shade burst zones in the middle panel
         for s, e in zip(burst_starts, burst_ends):
             ax_cluster.axvspan(s, min(e, len(x) - 1), alpha=0.10, color=PURPLE, zorder=1)
     ax_cluster.set_ylabel("Δt (ms)", color=PURPLE)
