@@ -16,7 +16,11 @@ python scripts/run_demo.py --config configs/default.yaml
 
 ## 1. Signal vs. Noise — Intensity λ(t) Visualization
 
-The Neural TPP's conditional intensity function λ(t) captures the **arrival rate of hidden orders** by learning patterns from the visible "lit market exhaust" on Binance/OKX. The plot below shows λ(t) (cyan) alongside fill probability (green dashed), with orange `▲` markers flagging "Hidden Whale" signals where intensity exceeds 1.5σ:
+The Neural TPP's conditional intensity function λ(t) captures the **arrival rate of hidden orders** by learning patterns from the visible "lit market exhaust" on Binance/OKX. The 3-panel plot below shows:
+
+- **Top:** λ(t) (cyan) with fill probability (green dashed). Orange `▲` markers flag "Hidden Whale" signals (λ > 1.5σ). Purple shading marks **cluster zones** — regions where events arrive in rapid bursts, the hallmark of a **Hawkes process**.
+- **Middle:** Inter-arrival time Δt (ms). Low bars = bursty clustering. The dashed line marks the burst threshold (p25). The model learns this "bursty" structure — hidden liquidity doesn't appear uniformly, it clusters around informed flow.
+- **Bottom:** Lit market volume (BTC) per event window.
 
 ![Intensity λ(t) — Hidden Liquidity Detection](docs/plots/intensity_lambda.png)
 
@@ -78,6 +82,16 @@ The model reduces adverse selection from **22% → 9%** by using the causal laye
   Sharpe Ratio:  0.590
 ════════════════════════
 ```
+
+> **Backtest Realism Disclosure:**
+>
+> This is not a frictionless simulation. The engine explicitly models:
+> - **Execution delay:** 1ms latency between signal generation and order fill — the fill price is sampled *after* the delay window, so price drift degrades PnL
+> - **Transaction costs:** 0.1 bps per trade (exchange fees + clearing), applied on top of slippage
+> - **Slippage model:** √(quantity) × 0.5 bps (square-root market impact)
+> - **Probabilistic fills:** Orders are *not* guaranteed to fill — each is sampled from P(fill) with the model's own predicted probability
+>
+> These frictions reduce headline PnL by ~15-30% vs. a naïve zero-cost backtest. See `src/backtest/engine.py` for implementation details.
 
 ---
 

@@ -58,5 +58,7 @@ backtest:
   block_size_btc: 1.0
   slippage_model: "linear"    # Options: linear, sqrt
   slippage_base_bps: 0.5
+  execution_delay_ms: 1.0        # Simulated latency from signal to fill
+  transaction_cost_bps: 0.1      # Exchange fees + clearing costs per trade
   fill_threshold: 0.6         # Minimum fill probability to submit order
   warmup_events: 200          # Events to skip before scoring

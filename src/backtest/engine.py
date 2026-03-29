@@ -110,6 +110,13 @@ class DarkPoolSimulator:
         self.slippage_fn = SLIPPAGE_MODELS.get(slippage_type, slippage_sqrt)
         self.slippage_base_bps = bt_cfg.get("slippage_base_bps", 0.5)
 
+        # Execution delay: simulates the latency between signal and fill.
+        # Even 1ms matters at HFT scale — this makes PnL more realistic.
+        self.execution_delay_ms: float = bt_cfg.get("execution_delay_ms", 1.0)
+
+        # Explicit transaction cost (exchange fees, clearing, etc.)
+        self.transaction_cost_bps: float = bt_cfg.get("transaction_cost_bps", 0.1)
+
         self.seq_length = config.get("training", {}).get("sequence_length", 128)
 
     def _build_batch(
@@ -188,17 +195,25 @@ class DarkPoolSimulator:
             current_price = prices[i]
 
             if fill_prob >= self.fill_threshold:
-                # Place order
+                # Place order — apply execution delay
+                # In production, the delay between signal and fill means the
+                # price can move. We model this by looking ahead by delay_events.
+                delay_events = max(1, int(self.execution_delay_ms / (
+                    np.mean(inter_arrivals[max(0, i-20):i]) * 1000 + 1e-6
+                )))
+                delayed_idx = min(i + delay_events, n - 1)
+                execution_price = prices[delayed_idx]  # Price after delay
+
                 slippage_bps = self.slippage_fn(self.block_size, self.slippage_base_bps)
-                fill_price = current_price * (1 + slippage_bps / 10_000)
+                fill_price = execution_price * (1 + (slippage_bps + self.transaction_cost_bps) / 10_000)
                 cost = fill_price * self.block_size
 
-                # Simulate fill: use a probabilistic model based on fill_prob
+                # Simulate fill: probabilistic based on fill_prob
                 rng = np.random.default_rng(seed=i)
                 actually_filled = rng.random() < fill_prob
 
                 if actually_filled and cost <= capital:
-                    # Compute PnL: compare fill price to a future reference price
+                    # PnL: compare fill price to future reference
                     future_idx = min(i + decision_interval, n - 1)
                     future_price = prices[future_idx]
                     pnl = (future_price - fill_price) * self.block_size
@@ -206,7 +221,7 @@ class DarkPoolSimulator:
                     capital += pnl
                     pnl_series.append(pnl)
 
-                    # Market impact: difference between fill price and midprice
+                    # Market impact: difference between fill price and pre-delay price
                     impact_bps = (fill_price / current_price - 1) * 10_000
 
                     order_log.append({
@@ -214,8 +229,11 @@ class DarkPoolSimulator:
                         "timestamp": df["timestamp"].iloc[i],
                         "fill_prob": fill_prob,
                         "current_price": current_price,
+                        "execution_price": execution_price,
                         "fill_price": fill_price,
                         "slippage_bps": slippage_bps,
+                        "transaction_cost_bps": self.transaction_cost_bps,
+                        "execution_delay_ms": self.execution_delay_ms,
                         "impact_bps": impact_bps,
                         "pnl": pnl,
                         "filled": True,

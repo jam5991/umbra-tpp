@@ -122,8 +122,8 @@ def generate_intensity_plot(
         lead_score = 0
 
     # ── Create figure ────────────────────────────────────────────────
-    fig, (ax_main, ax_vol) = plt.subplots(
-        2, 1, figsize=(14, 7), height_ratios=[3, 1],
+    fig, (ax_main, ax_cluster, ax_vol) = plt.subplots(
+        3, 1, figsize=(14, 9), height_ratios=[3, 1.5, 1],
         gridspec_kw={"hspace": 0.08},
     )
 
@@ -152,6 +152,26 @@ def generate_intensity_plot(
             label=f"Hidden Whale Signal (λ > {intensity_threshold:.3f})",
             edgecolors="white", linewidths=0.5,
         )
+
+    # Shade burst/cluster zones: regions where inter-arrival times are short
+    # (i.e., events arrive in rapid succession — Hawkes process hallmark)
+    window_ia = np.array([
+        np.mean(inter_arrivals[max(0, i - 10):i]) for i in event_indices
+    ])
+    burst_threshold = np.percentile(window_ia[window_ia > 0], 25) if np.any(window_ia > 0) else 0
+    burst_mask = window_ia < burst_threshold
+    if burst_mask.any():
+        # Fill burst zones on the intensity panel
+        burst_starts = np.where(np.diff(burst_mask.astype(int)) == 1)[0] + 1
+        burst_ends = np.where(np.diff(burst_mask.astype(int)) == -1)[0] + 1
+        if burst_mask[0]:
+            burst_starts = np.insert(burst_starts, 0, 0)
+        if burst_mask[-1]:
+            burst_ends = np.append(burst_ends, len(burst_mask))
+        for s, e in zip(burst_starts, burst_ends):
+            ax_main.axvspan(s, min(e, len(x) - 1), alpha=0.12, color=PURPLE, zorder=1)
+        # Add to legend
+        ax_main.fill_between([], [], [], alpha=0.3, color=PURPLE, label="Cluster Zone (Hawkes)")
 
     # Lead-lag annotation
     if lead_score > 0:
@@ -183,9 +203,28 @@ def generate_intensity_plot(
         loc="upper right", fontsize=8, framealpha=0.9,
     )
 
-    # ── Bottom: Volume bars ──────────────────────────────────────────
-    buy_mask = df.iloc[event_indices]["side"].values == "buy" if len(event_indices) <= len(df) else np.ones(len(x), dtype=bool)
+    # ── Middle: Inter-arrival clustering (Hawkes behavior) ───────────
+    ax_cluster.bar(x, window_ia * 1000, color=PURPLE, alpha=0.7, width=1.0, label="Avg Δt (ms)")
+    if burst_threshold > 0:
+        ax_cluster.axhline(
+            burst_threshold * 1000, color=ORANGE, linestyle="--",
+            linewidth=1.2, alpha=0.8, label=f"Burst Threshold (p25 = {burst_threshold*1000:.1f}ms)",
+        )
+        # Shade burst zones
+        for s, e in zip(burst_starts, burst_ends):
+            ax_cluster.axvspan(s, min(e, len(x) - 1), alpha=0.10, color=PURPLE, zorder=1)
+    ax_cluster.set_ylabel("Δt (ms)", color=PURPLE)
+    ax_cluster.tick_params(axis="y", colors=PURPLE)
+    ax_cluster.spines["left"].set_color(PURPLE)
+    ax_cluster.set_xticklabels([])
+    ax_cluster.grid(True, alpha=0.2)
+    ax_cluster.legend(loc="upper right", fontsize=8, framealpha=0.9)
+    ax_cluster.set_title(
+        "Event Clustering — Hawkes Process Behavior (low Δt = bursty hidden liquidity)",
+        fontsize=10, pad=6, color=GRAY,
+    )
 
+    # ── Bottom: Volume bars ──────────────────────────────────────────
     colors = [GREEN if i % 2 == 0 else RED for i in range(len(x))]
     ax_vol.bar(x, volumes, color=colors, alpha=0.6, width=1.0)
     ax_vol.set_ylabel("Volume (BTC)", color=GRAY)
@@ -195,7 +234,6 @@ def generate_intensity_plot(
     # Minimal y-axis
     ax_vol.yaxis.set_major_formatter(FuncFormatter(lambda v, _: f"{v:.1f}"))
 
-    plt.tight_layout()
     fig.savefig(output_path, dpi=150, bbox_inches="tight", facecolor=fig.get_facecolor())
     plt.close(fig)
     print(f"Saved: {output_path}")
