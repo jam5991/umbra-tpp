@@ -1,0 +1,62 @@
+# =============================================================================
+# Umbra-TPP: Default Configuration
+# =============================================================================
+
+# --- Neural TPP Model ---
+model:
+  hidden_dim: 64
+  num_layers: 2
+  mark_dim: 1           # Order size prediction (scalar)
+  dropout: 0.1
+  intensity_softplus: true
+
+# --- Training ---
+training:
+  learning_rate: 0.001
+  weight_decay: 1.0e-5
+  epochs: 50
+  batch_size: 64
+  sequence_length: 128  # Number of events per training sequence
+  train_split: 0.8
+  patience: 10          # Early stopping patience
+  checkpoint_dir: "checkpoints"
+
+# --- Venue Weights (multi-exchange fusion) ---
+venues:
+  binance:
+    weight: 0.5
+    symbol: "BTCUSDT"
+    base_url: "https://api.binance.com/api/v3"
+  okx:
+    weight: 0.3
+    symbol: "BTC-USDT"
+    base_url: "https://www.okx.com/api/v5/market"
+  gomarket:
+    weight: 0.2
+    symbol: "BTC-USDT"
+    base_url: null       # Placeholder for GoMarket dark pool
+
+# --- Feature Engineering ---
+features:
+  vpin_bucket_size: 50   # Volume bucket size for VPIN calculation
+  ofi_depth: 5           # Order book depth levels for OFI
+  microprice_levels: 5   # Bid/ask levels for microprice computation
+  lookback_window: 100   # Rolling window for feature normalization
+
+# --- Causal Inference Layer ---
+causal:
+  n_folds: 3
+  nuisance_model: "gradient_boosting"   # Options: gradient_boosting, random_forest
+  treatment_col: "is_dark_fill"
+  outcome_col: "price_impact_bps"
+  adversarial_epochs: 20
+  adversarial_lr: 0.0005
+
+# --- Backtest Engine ---
+backtest:
+  initial_capital_usd: 1_000_000
+  block_size_btc: 1.0
+  slippage_model: "linear"    # Options: linear, sqrt
+  slippage_base_bps: 0.5
+  fill_threshold: 0.6         # Minimum fill probability to submit order
+  warmup_events: 200          # Events to skip before scoring
