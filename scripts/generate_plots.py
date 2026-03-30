@@ -169,29 +169,27 @@ def generate_intensity_plot(
             edgecolors="white", linewidths=0.5,
         )
 
-    # Shade burst/cluster zones: regions where inter-arrival times are short
-    # relative to the local baseline (Hawkes process hallmark).
-    # Using a 20-window moving average to create a dynamic threshold.
+    # We calculate the local baseline for Hawkes cluster detection.
     window_ia = np.array([
         np.mean(inter_arrivals[max(0, i - 10):i]) for i in event_indices
     ])
-    local_baseline = pd.Series(window_ia).rolling(20, min_periods=1, center=True).mean().values
-    
+    local_baseline = pd.Series(window_ia).rolling(5, min_periods=1, center=False).mean().values
+
     # A burst is purely relative: when Δt drops to or below 50% of the local baseline.
-    # The <= handles the edge case where both window_ia and local_baseline are exactly 0.
     burst_mask = (window_ia <= (local_baseline * 0.5)) & (window_ia < 1.0)
-    
+
+    # Compute burst zone boundaries
+    burst_starts, burst_ends = np.array([], dtype=int), np.array([], dtype=int)
     if burst_mask.any():
-        # Fill burst zones on the intensity panel
         burst_starts = np.where(np.diff(burst_mask.astype(int)) == 1)[0] + 1
         burst_ends = np.where(np.diff(burst_mask.astype(int)) == -1)[0] + 1
         if burst_mask[0]:
             burst_starts = np.insert(burst_starts, 0, 0)
         if burst_mask[-1]:
             burst_ends = np.append(burst_ends, len(burst_mask))
+        # Shade burst zones on the TOP panel (subtle)
         for s, e in zip(burst_starts, burst_ends):
-            ax_main.axvspan(s, min(e, len(x) - 1), alpha=0.12, color=PURPLE, zorder=1)
-        # Add to legend
+            ax_main.axvspan(s, min(e, len(x) - 1), alpha=0.08, color=PURPLE, zorder=1)
         ax_main.fill_between([], [], [], alpha=0.3, color=PURPLE, label="Cluster Zone (Hawkes)")
 
     # Lead-lag annotation
@@ -239,8 +237,8 @@ def generate_intensity_plot(
     ax_cluster.set_yscale("log")
     ax_cluster.set_ylim(bottom=0.001)
     
+    # Shade burst zones on the MIDDLE panel
     if burst_mask.any():
-        # Shade burst zones in the middle panel
         for s, e in zip(burst_starts, burst_ends):
             ax_cluster.axvspan(s, min(e, len(x) - 1), alpha=0.10, color=PURPLE, zorder=1)
     ax_cluster.set_ylabel("Δt (ms)", color=PURPLE)
