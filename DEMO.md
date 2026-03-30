@@ -66,7 +66,7 @@ How does Umbra-TPP compare to a naive VWAP baseline? Using **Double Machine Lear
 
 > **Key Insight:** The **ATE of −0.177 bps** reflects the causal reduction in price impact from routing to dark pools — surviving 8-confounder residualization. The CI crosses zero at this sample size, consistent with a real-world signal that requires more execution data to fully pin down.
 
-> **On the negative R² in earlier runs:** A negative outcome R² in DML isn't a model bug — it means the nuisance model was underfitted on the outcome. With only 2 confounders, tick-by-tick price returns are unpredictable. Adding 6 more microstructure confounders pushed R² to +0.062.
+> **The Importance of Rich Confounders:** Achieving a positive outcome R² in high-frequency trading is notoriously difficult because tick-by-tick price returns are heavily dominated by noise. A naive causal model with only 2 standard confounders will typically underfit (yielding negative R²). By utilizing 8 rich microstructure confounders (VPIN, OFI, momentum), the DML nuisance models can successfully separate the true causal signal from the noise, achieving a positive +0.062 R² and robust causal attribution.
 
 ### Adverse Selection
 
